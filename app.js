@@ -17,6 +17,9 @@ const trazabilidadRouter = require('./funcionamiento/trazabilidad'); // ✅ TRAZ
 
 const app = express();
 
+// Configurar trust proxy para Railway/Proxy reverso
+app.set('trust proxy', 1);
+
 // test Configuración CORS - Allow all origins for now to debug
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
