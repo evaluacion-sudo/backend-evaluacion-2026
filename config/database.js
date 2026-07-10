@@ -1,14 +1,20 @@
 const mysql = require("mysql2");
+const bcrypt = require('bcryptjs');
 
 // Configuración de la base de datos
-const dbConfig = {
+/*const dbConfig = {
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME
+};*/
+
+const dbConfig = {
+  host: "localhost",
+  user: "root",
+  password: "leica666",
+  database:"proyectotitulo"
 };
-
-
 
 
 
@@ -53,6 +59,7 @@ async function inicializarTablas() {
         nombre VARCHAR(100) NOT NULL,
         direccion VARCHAR(255) NOT NULL,
         contacto VARCHAR(50) NOT NULL,
+        email VARCHAR(100) DEFAULT NULL,
         pedido TEXT NOT NULL,
         foto_id VARCHAR(255) DEFAULT NULL,
         latitud DECIMAL(10, 8) DEFAULT NULL,
@@ -62,6 +69,47 @@ async function inicializarTablas() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       )
     `);
+
+    // Asegurar columna 'email' en clientes (para bases ya creadas)
+    try {
+      const colEmail = await ejecutarQuery(
+        `SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'clientes' AND COLUMN_NAME = 'email'`,
+        [dbConfig.database]
+      );
+      if (!colEmail || !colEmail[0] || Number(colEmail[0].cnt) === 0) {
+        await ejecutarQuery(
+          `ALTER TABLE clientes ADD COLUMN email VARCHAR(100) DEFAULT NULL`
+        );
+        console.log("✅ Columna 'email' agregada a 'clientes'");
+      }
+    } catch (e) {
+      console.warn("No fue posible verificar/agregar columna 'email' en 'clientes':", e.message);
+    }
+
+    // Asegurar columnas 'latitud' y 'longitud' en clientes (para bases ya creadas)
+    try {
+      const colLat = await ejecutarQuery(
+        `SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'clientes' AND COLUMN_NAME = 'latitud'`,
+        [dbConfig.database]
+      );
+      const colLng = await ejecutarQuery(
+        `SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'clientes' AND COLUMN_NAME = 'longitud'`,
+        [dbConfig.database]
+      );
+
+      if (!colLat || !colLat[0] || Number(colLat[0].cnt) === 0 || !colLng || !colLng[0] || Number(colLng[0].cnt) === 0) {
+        // Agregar las columnas que falten
+        const alters = [];
+        if (!colLat || !colLat[0] || Number(colLat[0].cnt) === 0) alters.push(`ADD COLUMN latitud DECIMAL(10, 8) DEFAULT NULL`);
+        if (!colLng || !colLng[0] || Number(colLng[0].cnt) === 0) alters.push(`ADD COLUMN longitud DECIMAL(11, 8) DEFAULT NULL`);
+        if (alters.length > 0) {
+          await ejecutarQuery(`ALTER TABLE clientes ${alters.join(', ')}`);
+          console.log("✅ Columnas 'latitud'/'longitud' agregadas a 'clientes'");
+        }
+      }
+    } catch (e) {
+      console.warn("No fue posible verificar/agregar columnas 'latitud'/'longitud' en 'clientes':", e.message);
+    }
 
     // Asegurar columna 'estado' en clientes (para bases ya creadas)
     try {
@@ -171,13 +219,66 @@ async function inicializarTablas() {
       )
     `);
 
-    // Insertar usuario por defecto si no existe
+    // Tabla de códigos de verificación secundaria
     await ejecutarQuery(`
-      INSERT IGNORE INTO usuarios (email, password, rol)
-      VALUES ('matias.vp232@gmail.com', 'leica666', 'administrador')
+      CREATE TABLE IF NOT EXISTS verificacion_codigos (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        cliente_id INT NOT NULL,
+        codigo VARCHAR(6) NOT NULL,
+        usado TINYINT(1) NOT NULL DEFAULT 0,
+        expiracion TIMESTAMP NOT NULL,
+        enviado_a VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE CASCADE
+      )
     `);
 
+// Tabla ALMACÉN/INVENTARIO
+    await ejecutarQuery(`
+      CREATE TABLE IF NOT EXISTS almacen (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        nombre VARCHAR(100) NOT NULL UNIQUE,
+        descripcion TEXT,
+        stock_disponible INT NOT NULL DEFAULT 0,
+        stock_minimo INT DEFAULT 0,
+        unidad_medida VARCHAR(20) DEFAULT 'unidad',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    console.log("✅ Tabla 'almacen' creada/actualizada");
+
+    await ejecutarQuery(`
+      CREATE TABLE IF NOT EXISTS trazabilidad_eventos (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        tipo VARCHAR(50) NOT NULL,
+        descripcion TEXT NOT NULL,
+        actor_id INT DEFAULT NULL,
+        actor_email VARCHAR(100) DEFAULT NULL,
+        actor_nombre VARCHAR(100) DEFAULT NULL,
+        entidad_tipo VARCHAR(50) DEFAULT NULL,
+        entidad_id INT DEFAULT NULL,
+        entidad_nombre VARCHAR(150) DEFAULT NULL,
+        detalle_json TEXT DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_trazabilidad_tipo (tipo),
+        INDEX idx_trazabilidad_fecha (created_at),
+        INDEX idx_trazabilidad_actor (actor_id)
+      )
+    `);
+    console.log("✅ Tabla 'trazabilidad_eventos' creada/actualizada");
+
+    // Insertar usuario por defecto si no existe
+    const defaultAdminPassword = bcrypt.hashSync('leica666', 10);
+    await ejecutarQuery(`
+      INSERT IGNORE INTO usuarios (email, password, rol)
+      VALUES ('matias.vp232@gmail.com', ?, 'administrador')
+    `, [defaultAdminPassword]);
+
     console.log("✅ Todas las tablas han sido inicializadas correctamente");
+
   } catch (error) {
     console.error("❌ Error inicializando tablas:", error);
   }

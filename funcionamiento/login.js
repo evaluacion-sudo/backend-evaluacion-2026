@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const jwt = require("jsonwebtoken");
 const rateLimit = require('express-rate-limit');
+const bcrypt = require('bcryptjs');
 const { db } = require("../config/database");
 
 // Rate limiter for login attempts
@@ -12,7 +13,7 @@ const loginLimiter = rateLimit({
 });
 
 // Login: busca usuario por email y password
-router.post("/", loginLimiter, (req, res) => {
+router.post("/", loginLimiter, async (req, res) => {
   const { email, password } = req.body;
   
   if (!email || !password) {
@@ -22,7 +23,7 @@ router.post("/", loginLimiter, (req, res) => {
   db.query(
     "SELECT id, email, password, rol FROM usuarios WHERE email = ?",
     [email],
-    (err, results) => {
+    async (err, results) => {
       if (err) {
         console.error("Error en consulta de login:", err);
         return res.status(500).json({ error: "Error interno del servidor" });
@@ -34,9 +35,31 @@ router.post("/", loginLimiter, (req, res) => {
 
       const usuario = results[0];
       
-      // Comparar contraseña
-      if (usuario.password !== password) {
-        return res.status(401).json({ error: "Credenciales incorrectas" });
+      // Comparar contraseña con hash
+      const passwordCoincide = await bcrypt.compare(password, usuario.password);
+      let passwordLegacy = false;
+
+      if (!passwordCoincide) {
+        // Soporte para cuentas antiguas con contraseña en texto plano:
+        // si la contraseña no coincide con el hash, comparamos en claro
+        if (usuario.password === password) {
+          passwordLegacy = true;
+        } else {
+          return res.status(401).json({ error: "Credenciales incorrectas" });
+        }
+      }
+
+      if (passwordLegacy) {
+        const hashedPassword = bcrypt.hashSync(password, 10);
+        db.query(
+          "UPDATE usuarios SET password = ? WHERE id = ?",
+          [hashedPassword, usuario.id],
+          (updateErr) => {
+            if (updateErr) {
+              console.error('Error actualizando contraseña legacy:', updateErr);
+            }
+          }
+        );
       }
 
       // Crear token JWT

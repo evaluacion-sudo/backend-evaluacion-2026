@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -11,6 +12,8 @@ const faceVerificacionRouter = require('./funcionamiento/FaceVerificacion'); // 
 const uploadFotoRouter = require('./funcionamiento/uploadFoto'); // ✅ NUEVO
 const transportistasRouter = require('./funcionamiento/transportistas'); // ✅ NUEVO
 const ubicacionesTransportistaRouter = require('./funcionamiento/ubicacionesTransportista'); // ✅ NUEVO
+const almacenRouter = require('./funcionamiento/almacen'); // ✅ ALMACÉN NUEVO
+const trazabilidadRouter = require('./funcionamiento/trazabilidad'); // ✅ TRAZABILIDAD NUEVA
 
 const app = express();
 
@@ -43,10 +46,10 @@ app.use('/api/faceverificacion', faceVerificacionRouter); // ✅ NUEVO
 app.use('/api/upload-foto', uploadFotoRouter); // ✅ NUEVO
 app.use('/api/transportistas', transportistasRouter); // ✅ NUEVO
 app.use('/api/ubicaciones-transportista', ubicacionesTransportistaRouter); // ✅ NUEVO
+app.use('/api/almacen', almacenRouter); // ✅ ALMACÉN
+app.use('/api/trazabilidad', trazabilidadRouter); // ✅ TRAZABILIDAD
 
-
-
-const PORT = process.env.PORT || 4000; // Railway usará el PORT que asigne, si no, usa 4000
+const PORT = process.env.PORT || 3000; //Railway usará el PORT que asigne, si no, usa 3000 (LOCAL)
         app.listen(PORT, '0.0.0.0', () => {
             console.log(`Servidor backend corriendo en el puerto ${PORT}`);
         });

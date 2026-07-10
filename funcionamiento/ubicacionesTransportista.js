@@ -114,11 +114,7 @@ router.get("/asignados", async (req, res) => {
 
     if (usuario.rol === 'administrador' || usuario.rol === 'admin') {
       // Admin ve todas las ubicaciones recientes
-      const sql = `
-        SELECT DISTINCT ut.transportista_id
-        FROM ubicaciones_transportista ut
-        ORDER BY ut.timestamp DESC
-      `;
+      const sql = `\n        SELECT DISTINCT ut.transportista_id\n        FROM ubicaciones_transportista ut\n      `;
       const transportistas = await ejecutarQuery(sql);
       transportistaIds = transportistas.map(t => t.transportista_id);
     } else if (usuario.rol === 'cliente') {
