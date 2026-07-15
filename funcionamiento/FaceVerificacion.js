@@ -7,14 +7,24 @@ const nodemailer = require('nodemailer');
 const { ejecutarQuery } = require('../config/database');
 const { verificarToken } = require('../config/auth');
 
+// --- SMTP: configurar timeouts y logs para diagnosticar ETIMEDOUT ---
+const SMTP_HOST = process.env.SMTP_HOST;
+const SMTP_PORT = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined;
+const SMTP_USER = process.env.SMTP_USER;
+const SMTP_SECURE = process.env.SMTP_SECURE === 'true';
+
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.example.com',
-  port: Number(process.env.SMTP_PORT || 587),
-  secure: process.env.SMTP_SECURE === 'true',
+  // Evitar el fallback smtp.example.com para no enmascarar configuración faltante
+  host: SMTP_HOST,
+  port: SMTP_PORT ?? 587,
+  secure: SMTP_SECURE,
   auth: {
-    user: process.env.SMTP_USER || '',
-    pass: process.env.SMTP_PASS || ''
-  }
+    user: SMTP_USER,
+    pass: process.env.SMTP_PASS
+  },
+  connectionTimeout: 10_000, // 10s
+  greetingTimeout: 10_000, // 10s
+  socketTimeout: 10_000 // 10s
 });
 
 const generarCodigo = () => {
@@ -28,7 +38,7 @@ const generarCodigo = () => {
 
 // Configuración de multer para subir archivos en memoria
 const storage = multer.memoryStorage();
-const upload = multer({ 
+const upload = multer({
   storage,
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
   fileFilter: (req, file, cb) => {
@@ -42,7 +52,7 @@ async function detectarRostro(imageBuffer) {
   try {
     const metadata = await sharp(imageBuffer).metadata();
     const { width, height } = metadata;
-    if (width < 100 || height < 100) 
+    if (width < 100 || height < 100)
       return { detected: false, confidence: 0, message: 'Imagen demasiado pequeña' };
 
     const stats = await sharp(imageBuffer).greyscale().stats();
@@ -52,16 +62,16 @@ async function detectarRostro(imageBuffer) {
     const hasGoodBrightness = mean > 50 && mean < 200;
 
     if (hasGoodContrast && hasGoodBrightness) {
-      return { 
-        detected: true, 
-        confidence: Math.min(85, (stdev / 2) + (Math.abs(mean - 125) / 10)), 
-        message: 'Rostro detectado exitosamente' 
+      return {
+        detected: true,
+        confidence: Math.min(85, (stdev / 2) + (Math.abs(mean - 125) / 10)),
+        message: 'Rostro detectado exitosamente'
       };
     } else {
-      return { 
-        detected: false, 
-        confidence: Math.max(15, (stdev / 2) + (Math.abs(mean - 125) / 10)), 
-        message: 'Rostro no válido' 
+      return {
+        detected: false,
+        confidence: Math.max(15, (stdev / 2) + (Math.abs(mean - 125) / 10)),
+        message: 'Rostro no válido'
       };
     }
   } catch (error) {
@@ -126,7 +136,6 @@ router.post('/verificar', verificarToken, async (req, res) => {
       success: true,
       message: 'Verificación registrada correctamente'
     });
-
   } catch (error) {
     console.error('Error registrando verificación:', error);
     res.status(500).json({ error: 'Error interno del servidor: ' + error.message });
@@ -157,9 +166,15 @@ router.post('/enviar-codigo', verificarToken, async (req, res) => {
       [clienteId, codigo, expiracion, clienteData.email]
     );
 
+    // Validar SMTP antes de intentar enviar
     if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
-      return res.status(500).json({ error: 'SMTP no configurado. No se pudo enviar el correo' });
+      return res.status(500).json({
+        error: 'SMTP no configurado. Revisa SMTP_HOST/SMTP_USER/SMTP_PASS en las variables de entorno.'
+      });
     }
+
+    // Logs de diagnóstico (sin password)
+    console.log('[SMTP] Host:', process.env.SMTP_HOST, 'Port:', process.env.SMTP_PORT, 'Secure:', process.env.SMTP_SECURE);
 
     await transporter.sendMail({
       from: process.env.SMTP_FROM || 'no-reply@tuapp.com',
@@ -177,6 +192,14 @@ router.post('/enviar-codigo', verificarToken, async (req, res) => {
     res.json({ success: true, message: 'Código enviado al correo del cliente' });
   } catch (error) {
     console.error('Error enviando código de verificación:', error);
+
+    // Mensaje más específico para ETIMEDOUT
+    if (error && error.code === 'ETIMEDOUT') {
+      return res.status(500).json({
+        error: 'No se pudo conectar al servidor SMTP (timeout). Verifica que SMTP_HOST/SMTP_PORT sean accesibles desde el servidor y que el puerto no esté bloqueado.'
+      });
+    }
+
     res.status(500).json({ error: 'No se pudo enviar el código de verificación' });
   }
 });
@@ -243,3 +266,4 @@ router.get('/historial/:clienteId', async (req, res) => {
 });
 
 module.exports = router;
+
