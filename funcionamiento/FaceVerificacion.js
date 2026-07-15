@@ -264,6 +264,3 @@ router.get('/historial/:clienteId', async (req, res) => {
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
-
-module.exports = router;
-
