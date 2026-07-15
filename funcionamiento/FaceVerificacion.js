@@ -1,4 +1,4 @@
-// backend/funcionamiento/FaceVerificacion.js
+/ backend/funcionamiento/FaceVerificacion.js
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
@@ -264,3 +264,6 @@ router.get('/historial/:clienteId', async (req, res) => {
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
+
+module.exports = router;
+
