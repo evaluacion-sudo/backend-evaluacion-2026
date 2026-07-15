@@ -3,16 +3,29 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const sharp = require('sharp');
-const { Resend } = require('resend'); // Reemplazamos nodemailer por el SDK de Resend
+const nodemailer = require('nodemailer');
 const { ejecutarQuery } = require('../config/database');
 const { verificarToken } = require('../config/auth');
 
-// --- Inicialización de Resend ---
-const resendApiKey = process.env.RESEND_API_KEY;
-const resendFrom = process.env.RESEND_FROM || 'onboarding@resend.dev';
+// --- SMTP: configurar timeouts y logs para diagnosticar ETIMEDOUT ---
+const SMTP_HOST = process.env.SMTP_HOST;
+const SMTP_PORT = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined;
+const SMTP_USER = process.env.SMTP_USER;
+const SMTP_SECURE = process.env.SMTP_SECURE === 'true';
 
-// Inicializamos el cliente de Resend si la API Key está presente
-const resend = resendApiKey ? new Resend(resendApiKey) : null;
+const transporter = nodemailer.createTransport({
+  // Evitar el fallback smtp.example.com para no enmascarar configuración faltante
+  host: SMTP_HOST,
+  port: SMTP_PORT ?? 587,
+  secure: SMTP_SECURE,
+  auth: {
+    user: SMTP_USER,
+    pass: process.env.SMTP_PASS
+  },
+  connectionTimeout: 10_000, // 10s
+  greetingTimeout: 10_000, // 10s
+  socketTimeout: 10_000 // 10s
+});
 
 const generarCodigo = () => {
   const letras = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -153,29 +166,23 @@ router.post('/enviar-codigo', verificarToken, async (req, res) => {
       [clienteId, codigo, expiracion, clienteData.email]
     );
 
-    // Validar configuración de Resend antes de disparar la petición HTTP
-    if (!resend) {
+    // Validar SMTP antes de intentar enviar
+    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
       return res.status(500).json({
-        error: 'Resend no está configurado. Revisa que RESEND_API_KEY esté presente en las variables de entorno.'
+        error: 'SMTP no configurado. Revisa SMTP_HOST/SMTP_USER/SMTP_PASS en las variables de entorno.'
       });
     }
 
-    console.log('[Resend] Preparando envío HTTP hacia:', clienteData.email);
+    // Logs de diagnóstico (sin password)
+    console.log('[SMTP] Host:', process.env.SMTP_HOST, 'Port:', process.env.SMTP_PORT, 'Secure:', process.env.SMTP_SECURE);
 
-    // Envío del correo usando el SDK de Resend (petición HTTPS REST en puerto 443)
-    const { data, error } = await resend.emails.send({
-      from: resendFrom,
-      to: [clienteData.email],
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || 'no-reply@tuapp.com',
+      to: clienteData.email,
       subject: 'Código de verificación de identidad',
+      text: `Tu código de verificación de identidad es: ${codigo}`,
       html: `<p>Tu código de verificación de identidad es:</p><h2>${codigo}</h2><p>Ingresa este código en la aplicación para completar la verificación.</p>`
     });
-
-    if (error) {
-      console.error('[Resend Error]:', error);
-      throw new Error(error.message || 'Error desconocido al procesar el envío de correo en Resend');
-    }
-
-    console.log('[Resend] Correo enviado exitosamente, ID de transacción:', data.id);
 
     await ejecutarQuery(
       'INSERT INTO verificaciones_faciales (cliente_id, transportista_id, confianza, resultado, fecha_verificacion, observaciones) VALUES (?, ?, 0, ?, NOW(), ?)',
@@ -185,7 +192,15 @@ router.post('/enviar-codigo', verificarToken, async (req, res) => {
     res.json({ success: true, message: 'Código enviado al correo del cliente' });
   } catch (error) {
     console.error('Error enviando código de verificación:', error);
-    res.status(500).json({ error: 'No se pudo enviar el correo: ' + error.message });
+
+    // Mensaje más específico para ETIMEDOUT
+    if (error && error.code === 'ETIMEDOUT') {
+      return res.status(500).json({
+        error: 'No se pudo conectar al servidor SMTP (timeout). Verifica que SMTP_HOST/SMTP_PORT sean accesibles desde el servidor y que el puerto no esté bloqueado.'
+      });
+    }
+
+    res.status(500).json({ error: 'No se pudo enviar el código de verificación' });
   }
 });
 
@@ -230,7 +245,7 @@ router.post('/confirmar-codigo', verificarToken, async (req, res) => {
 // Endpoint para obtener historial de verificaciones de un cliente
 router.get('/historial/:clienteId', async (req, res) => {
   try {
-    const { clienteId } = params;
+    const { clienteId } = req.params;
 
     const verificaciones = await ejecutarQuery(
       `SELECT vf.*, c.nombre as cliente_nombre, u.email as transportista_email
@@ -251,3 +266,4 @@ router.get('/historial/:clienteId', async (req, res) => {
 });
 
 module.exports = router;
+
