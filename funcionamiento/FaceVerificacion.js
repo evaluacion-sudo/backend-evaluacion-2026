@@ -8,12 +8,19 @@ const { ejecutarQuery } = require('../config/database');
 const { verificarToken } = require('../config/auth');
 
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.example.com',
+  // Al usar 'gmail', Nodemailer ignora el host y optimiza la ruta de conexión
+  service: process.env.SMTP_HOST?.includes('gmail') ? 'gmail' : undefined,
+  host: process.env.SMTP_HOST || '://gmail.com', 
   port: Number(process.env.SMTP_PORT || 587),
-  secure: process.env.SMTP_SECURE === 'true',
+  secure: process.env.SMTP_SECURE === 'true', // Mantener en false para puerto 587
   auth: {
     user: process.env.SMTP_USER || '',
-    pass: process.env.SMTP_PASS || ''
+    pass: process.env.SMTP_PASS || '' // Recuerda: aquí va la contraseña de aplicación de 16 letras
+  },
+  // Esta sección TLS es obligatoria para saltar los firewalls de AWS y Railway
+  tls: {
+    ciphers: 'SSLv3',
+    rejectUnauthorized: false 
   }
 });
 
