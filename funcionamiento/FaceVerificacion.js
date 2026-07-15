@@ -1,4 +1,4 @@
-/ backend/funcionamiento/FaceVerificacion.js
+
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
@@ -14,17 +14,17 @@ const SMTP_USER = process.env.SMTP_USER;
 const SMTP_SECURE = process.env.SMTP_SECURE === 'true';
 
 const transporter = nodemailer.createTransport({
-  // Evitar el fallback smtp.example.com para no enmascarar configuración faltante
+  // Sin fallback: si SMTP_HOST no existe, fallará con error claro
   host: SMTP_HOST,
-  port: SMTP_PORT ?? 587,
+  port: SMTP_PORT || 587,
   secure: SMTP_SECURE,
   auth: {
     user: SMTP_USER,
     pass: process.env.SMTP_PASS
   },
-  connectionTimeout: 10_000, // 10s
-  greetingTimeout: 10_000, // 10s
-  socketTimeout: 10_000 // 10s
+  connectionTimeout: 10000, // 10s
+  greetingTimeout: 10000, // 10s
+  socketTimeout: 10000 // 10s
 });
 
 const generarCodigo = () => {
