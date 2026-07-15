@@ -8,16 +8,12 @@ const { ejecutarQuery } = require('../config/database');
 const { verificarToken } = require('../config/auth');
 
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  host: '://gmail.com',
-  port: 465,
-  secure: true, // OBLIGATORIO para puerto 465
+  host: process.env.SMTP_HOST || 'smtp.example.com',
+  port: Number(process.env.SMTP_PORT || 587),
+  secure: process.env.SMTP_SECURE === 'true',
   auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS
-  },
-  tls: {
-    rejectUnauthorized: false
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || ''
   }
 });
 
